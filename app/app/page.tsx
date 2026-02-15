@@ -56,38 +56,109 @@ function formatDayLabel(dayKey: string) {
   });
 }
 
-function ActivityRing({
-  value,
-  radius,
-  color,
-  trackColor,
-  strokeWidth,
+const DAILY_QUOTES = [
+  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { text: "A goal without a plan is just a wish.", author: "Antoine de Saint-Exupery" },
+  { text: "Do or do not. There is no try.", author: "Yoda" },
+  { text: "The way to get started is to quit talking and begin doing.", author: "Walt Disney" },
+  { text: "Lost time is never found again.", author: "Benjamin Franklin" },
+  { text: "Action is the foundational key to all success.", author: "Pablo Picasso" },
+  { text: "It is not enough to be busy. The question is: what are we busy about?", author: "Henry David Thoreau" },
+  { text: "Time is what we want most, but what we use worst.", author: "William Penn" },
+  { text: "By failing to prepare, you are preparing to fail.", author: "Benjamin Franklin" },
+  { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
+  { text: "You don't have to be great to start, but you have to start to be great.", author: "Zig Ziglar" },
+  { text: "Well done is better than well said.", author: "Benjamin Franklin" },
+  { text: "Productivity is never an accident. It is always the result of a commitment to excellence.", author: "Paul J. Meyer" },
+  { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+  { text: "Ordinary people think merely of spending time. Great people think of using it.", author: "Arthur Schopenhauer" },
+  { text: "Don't wait. The time will never be just right.", author: "Napoleon Hill" },
+  { text: "Either you run the day or the day runs you.", author: "Jim Rohn" },
+  { text: "Your future is created by what you do today, not tomorrow.", author: "Robert Kiyosaki" },
+  { text: "The shorter way to do many things is to do only one thing at a time.", author: "Mozart" },
+  { text: "What gets measured gets managed.", author: "Peter Drucker" },
+  { text: "Discipline is the bridge between goals and accomplishment.", author: "Jim Rohn" },
+  { text: "Amateurs sit and wait for inspiration. The rest of us just get up and go to work.", author: "Stephen King" },
+  { text: "Plans are nothing; planning is everything.", author: "Dwight D. Eisenhower" },
+  { text: "Time is the most valuable thing a man can spend.", author: "Theophrastus" },
+  { text: "Start where you are. Use what you have. Do what you can.", author: "Arthur Ashe" },
+  { text: "Focus on being productive instead of busy.", author: "Tim Ferriss" },
+  { text: "The key is not to prioritize what's on your schedule, but to schedule your priorities.", author: "Stephen Covey" },
+  { text: "A year from now you may wish you had started today.", author: "Karen Lamb" },
+  { text: "Until we can manage time, we can manage nothing else.", author: "Peter Drucker" },
+  { text: "Done is better than perfect.", author: "Sheryl Sandberg" },
+];
+
+type InsightsData = {
+  great: string[];
+  not_great: string[];
+  improve: string[];
+};
+
+function TenDayChart({
+  dayStatsMap,
 }: {
-  value: number;
-  radius: number;
-  color: string;
-  trackColor: string;
-  strokeWidth: number;
+  dayStatsMap: Record<string, { total: number; completed: number }>;
 }) {
-  const clamped = Math.max(0, Math.min(100, value));
-  const circumference = 2 * Math.PI * radius;
-  const dash = (clamped / 100) * circumference;
+  const days = Array.from({ length: 10 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (9 - i));
+    return getDayKey(d);
+  });
+
+  const dayData = days.map((key) => ({
+    key,
+    label: new Date(key + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }),
+    total: dayStatsMap[key]?.total ?? 0,
+    completed: dayStatsMap[key]?.completed ?? 0,
+  }));
+
+  const maxVal = Math.max(...dayData.map((d) => Math.max(d.total, d.completed)), 1);
+  const ySteps = maxVal <= 4 ? maxVal : 4;
+
+  const svgWidth = 400;
+  const svgHeight = 180;
+  const paddingLeft = 28;
+  const paddingRight = 8;
+  const paddingBottom = 28;
+  const paddingTop = 8;
+  const chartWidth = svgWidth - paddingLeft - paddingRight;
+  const chartHeight = svgHeight - paddingBottom - paddingTop;
+  const groupWidth = chartWidth / 10;
+  const barWidth = groupWidth * 0.3;
+  const gap = 2;
 
   return (
-    <>
-      <circle cx="60" cy="60" r={radius} fill="none" stroke={trackColor} strokeWidth={strokeWidth} />
-      <circle
-        cx="60"
-        cy="60"
-        r={radius}
-        fill="none"
-        stroke={color}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeDasharray={`${dash} ${circumference}`}
-        transform="rotate(-90 60 60)"
-      />
-    </>
+    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" role="img" aria-label="10-day task trends">
+      {Array.from({ length: ySteps + 1 }, (_, i) => {
+        const val = Math.round((maxVal / ySteps) * i);
+        const y = paddingTop + chartHeight - (chartHeight * i) / ySteps;
+        return (
+          <g key={i}>
+            <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} stroke="#e4e4e7" strokeWidth={0.5} />
+            <text x={paddingLeft - 4} y={y + 3} textAnchor="end" className="fill-zinc-400 text-[8px]">
+              {val}
+            </text>
+          </g>
+        );
+      })}
+      {dayData.map((d, i) => {
+        const groupX = paddingLeft + i * groupWidth;
+        const barX = groupX + (groupWidth - 2 * barWidth - gap) / 2;
+        const baseY = paddingTop + chartHeight;
+        const totalH = maxVal > 0 ? (d.total / maxVal) * chartHeight : 0;
+        const completedH = maxVal > 0 ? (d.completed / maxVal) * chartHeight : 0;
+        return (
+          <g key={d.key}>
+            <rect x={barX} y={baseY - totalH} width={barWidth} height={totalH} rx={2} fill="#bae6fd" />
+            <rect x={barX + barWidth + gap} y={baseY - completedH} width={barWidth} height={completedH} rx={2} fill="#0284c7" />
+            <text x={groupX + groupWidth / 2} y={baseY + 14} textAnchor="middle" className="fill-zinc-500 text-[8px]">
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -103,6 +174,9 @@ export default function CloudTodoPage() {
   const [addArmstrong, setAddArmstrong] = useState(false);
   const [newTaskPulseId, setNewTaskPulseId] = useState<string | null>(null);
   const [completedPulseIds, setCompletedPulseIds] = useState<string[]>([]);
+  const [insights, setInsights] = useState<InsightsData | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -191,9 +265,6 @@ export default function CloudTodoPage() {
   const myDayTodos = useMemo(() => todos.filter((todo) => todo.day === todayKey), [todos, todayKey]);
   const archiveTodos = useMemo(() => todos.filter((todo) => todo.day !== todayKey), [todos, todayKey]);
   const remainingCount = useMemo(() => myDayTodos.filter((todo) => !todo.completed).length, [myDayTodos]);
-  const completedCount = myDayTodos.length - remainingCount;
-  const dailyCompletionPct = myDayTodos.length ? Math.round((completedCount / myDayTodos.length) * 100) : 0;
-
   const groupedArchive = useMemo(() => {
     return archiveTodos.reduce<Record<string, Todo[]>>((groups, todo) => {
       groups[todo.day] ??= [];
@@ -212,24 +283,6 @@ export default function CloudTodoPage() {
       return acc;
     }, {});
   }, [todos]);
-
-  const consistencyPct = useMemo(() => {
-    const recentKeys = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date();
-      date.setDate(date.getDate() - index);
-      return getDayKey(date);
-    });
-
-    const hitDays = recentKeys.filter((key) => {
-      const stats = dayStatsMap[key];
-      if (!stats || stats.total === 0) return false;
-      return stats.completed / stats.total >= 0.7;
-    }).length;
-
-    return Math.round((hitDays / recentKeys.length) * 100);
-  }, [dayStatsMap]);
-
-  const volumePct = Math.min(Math.round((completedCount / 6) * 100), 100);
 
   const triggerInputPulse = () => {
     setInputPulse(false);
@@ -432,6 +485,37 @@ export default function CloudTodoPage() {
     router.push("/");
   };
 
+  const fetchInsights = async () => {
+    setInsightsLoading(true);
+    setInsightsError(null);
+    try {
+      const supabase = getSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("No session");
+
+      const res = await fetch("/api/insights", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Failed to get insights");
+      }
+
+      const result = await res.json();
+      setInsights(result);
+    } catch (err) {
+      setInsightsError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
   if (loading) {
     return <main className="min-h-screen bg-sky-50 p-6">Loading your cloud tasks...</main>;
   }
@@ -466,6 +550,20 @@ export default function CloudTodoPage() {
               </button>
             </div>
           </div>
+
+          {(() => {
+            const dayStr = getDayKey();
+            const seed = dayStr.split("").reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 0);
+            const quote = DAILY_QUOTES[((seed % DAILY_QUOTES.length) + DAILY_QUOTES.length) % DAILY_QUOTES.length];
+            return (
+              <p className="mt-2 text-lg italic text-zinc-500">
+                &ldquo;{quote.text}&rdquo;
+                <span className="ml-1 text-base not-italic text-zinc-400">
+                  &mdash; {quote.author}
+                </span>
+              </p>
+            );
+          })()}
 
           <form onSubmit={handleAddTodo} className="mt-4 flex gap-2">
             <label htmlFor="todo-input" className="sr-only">
@@ -542,34 +640,80 @@ export default function CloudTodoPage() {
           </ul>
 
           <section className="mt-7 rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-cyan-50 p-4">
-            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">Activity Rings</p>
-            <div className="mt-3 flex items-center justify-center">
-              <svg viewBox="0 0 120 120" className="h-48 w-48" role="img" aria-label="Daily progress rings">
-                <ActivityRing value={dailyCompletionPct} radius={44} color="#0284c7" trackColor="#dbeafe" strokeWidth={10} />
-                <ActivityRing value={consistencyPct} radius={31} color="#06b6d4" trackColor="#cffafe" strokeWidth={10} />
-                <ActivityRing value={volumePct} radius={18} color="#0d9488" trackColor="#ccfbf1" strokeWidth={10} />
-                <text x="60" y="57" textAnchor="middle" className="fill-sky-800 text-[14px] font-semibold">
-                  {dailyCompletionPct}%
-                </text>
-                <text x="60" y="73" textAnchor="middle" className="fill-sky-600 text-[9px]">
-                  complete
-                </text>
-              </svg>
+            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">10-Day Trends</p>
+            <div className="mt-3">
+              <TenDayChart dayStatsMap={dayStatsMap} />
             </div>
-            <div className="mt-2 space-y-1 text-xs text-zinc-700">
-              <p>
-                <span className="font-semibold text-sky-700">Move:</span> Today&apos;s task completion {dailyCompletionPct}%
-              </p>
-              <p>
-                <span className="font-semibold text-cyan-700">Exercise:</span> 7-day consistency {consistencyPct}%
-              </p>
-              <p>
-                <span className="font-semibold text-teal-700">Stand:</span> Task volume goal {volumePct}%
-              </p>
+            <div className="mt-2 flex items-center gap-4 text-xs text-zinc-600">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#bae6fd" }} />
+                Created
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#0284c7" }} />
+                Completed
+              </span>
             </div>
-            <p className="mt-3 text-sm text-zinc-700">
-              {completedCount} completed of {myDayTodos.length || 0} today.
-            </p>
+          </section>
+
+          <section className="mt-7 rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-cyan-50 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">AI Insights</p>
+              <button
+                type="button"
+                onClick={() => void fetchInsights()}
+                disabled={insightsLoading}
+                className="rounded-lg border border-sky-200 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50 disabled:opacity-60"
+              >
+                {insightsLoading ? "Analyzing..." : insights ? "Refresh" : "Get Insights"}
+              </button>
+            </div>
+
+            {insightsError && (
+              <p className="mt-3 text-sm text-red-600">{insightsError}</p>
+            )}
+
+            {insightsLoading && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky-300 border-t-transparent" />
+                Analyzing your task patterns...
+              </div>
+            )}
+
+            {insights && !insightsLoading && (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-sm font-semibold text-emerald-700">What you did great</p>
+                  <ul className="mt-2 space-y-1">
+                    {insights.great.map((item, i) => (
+                      <li key={i} className="text-sm text-emerald-800">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm font-semibold text-amber-700">Not so great</p>
+                  <ul className="mt-2 space-y-1">
+                    {insights.not_great.map((item, i) => (
+                      <li key={i} className="text-sm text-amber-800">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                  <p className="text-sm font-semibold text-sky-700">Things to improve</p>
+                  <ul className="mt-2 space-y-1">
+                    {insights.improve.map((item, i) => (
+                      <li key={i} className="text-sm text-sky-800">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {!insights && !insightsLoading && !insightsError && (
+              <p className="mt-3 text-sm text-zinc-500">
+                Click &quot;Get Insights&quot; to get an AI-powered analysis of your task patterns.
+              </p>
+            )}
           </section>
 
           <section className="mt-7">
