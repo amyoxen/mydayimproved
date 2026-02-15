@@ -13,6 +13,14 @@ type Todo = {
   day: string;
 };
 
+type TaskRow = {
+  id: string;
+  text: string;
+  completed: boolean;
+  created_at: string;
+  day: string;
+};
+
 type ConfettiPiece = {
   id: string;
   x: number;
@@ -109,7 +117,8 @@ export default function CloudTodoPage() {
 
     if (error) return;
 
-    const mapped: Todo[] = (data ?? []).map((row) => ({
+    const rows = (data ?? []) as TaskRow[];
+    const mapped: Todo[] = rows.map((row) => ({
       id: row.id,
       text: row.text,
       completed: row.completed,
