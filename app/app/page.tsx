@@ -315,31 +315,32 @@ export default function CloudTodoPage() {
     return audioContextRef.current;
   };
 
+  const playTone = (ctx: AudioContext, freq: number, start: number, duration: number, volume: number, type: OscillatorType = "sine") => {
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(volume, start + 0.01);
+    gain.gain.setValueAtTime(volume, start + duration * 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    gain.connect(ctx.destination);
+
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, start);
+    osc.connect(gain);
+    osc.start(start);
+    osc.stop(start + duration + 0.02);
+  };
+
   const playAddSound = () => {
     const ctx = getAudioContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const partials = [
-      { freq: 1046, gain: 0.12, decay: 0.32 },
-      { freq: 1568, gain: 0.06, decay: 0.26 },
-      { freq: 2093, gain: 0.035, decay: 0.2 },
-    ];
-
-    partials.forEach(({ freq, gain: level, decay }) => {
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(level, now + 0.005);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + decay);
-      gain.connect(ctx.destination);
-
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, now);
-      osc.connect(gain);
-      osc.start(now);
-      osc.stop(now + decay + 0.02);
-    });
+    // Warm ascending major third (C5 → E5) with gentle sustain
+    playTone(ctx, 523, now, 0.45, 0.09);          // C5
+    playTone(ctx, 523 * 2, now, 0.3, 0.03);       // C6 harmonic
+    playTone(ctx, 659, now + 0.15, 0.55, 0.1);    // E5
+    playTone(ctx, 659 * 2, now + 0.15, 0.35, 0.03); // E6 harmonic
   };
 
   const playCompleteSound = () => {
@@ -347,32 +348,14 @@ export default function CloudTodoPage() {
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const dingTimes = [0, 0.18];
-
-    dingTimes.forEach((offset, ringIndex) => {
-      const start = now + offset;
-      const boost = ringIndex === 1 ? 1.08 : 1;
-      const partials = [
-        { freq: 1318 * boost, gain: 0.14, decay: 0.35 },
-        { freq: 1975 * boost, gain: 0.08, decay: 0.28 },
-        { freq: 2637 * boost, gain: 0.045, decay: 0.22 },
-      ];
-
-      partials.forEach(({ freq, gain: level, decay }) => {
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(level, start + 0.006);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + decay);
-        gain.connect(ctx.destination);
-
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, start);
-        osc.connect(gain);
-        osc.start(start);
-        osc.stop(start + decay + 0.02);
-      });
-    });
+    // Uplifting major chord arpeggio (C5 → E5 → G5 → C6)
+    playTone(ctx, 523, now, 0.5, 0.08);             // C5
+    playTone(ctx, 659, now + 0.12, 0.55, 0.09);     // E5
+    playTone(ctx, 784, now + 0.24, 0.6, 0.1);       // G5
+    playTone(ctx, 1047, now + 0.36, 0.7, 0.08);     // C6
+    // Soft pad underneath for warmth
+    playTone(ctx, 523, now + 0.1, 0.9, 0.04, "triangle");  // C5 pad
+    playTone(ctx, 784, now + 0.2, 0.8, 0.03, "triangle");  // G5 pad
   };
 
   const triggerConfetti = (x: number, y: number, count = 26) => {
@@ -565,7 +548,7 @@ export default function CloudTodoPage() {
             );
           })()}
 
-          <form onSubmit={handleAddTodo} className="mt-4 flex gap-2">
+          <form onSubmit={handleAddTodo} className="mt-4">
             <label htmlFor="todo-input" className="sr-only">
               Add a task to My Day
             </label>
@@ -578,29 +561,30 @@ export default function CloudTodoPage() {
               onFocus={triggerInputPulse}
               onClick={triggerInputPulse}
               placeholder="Add a task to My Day"
-              className={`flex-1 rounded-xl border border-sky-200 bg-white px-4 py-3 text-base outline-none ring-offset-2 focus:ring-2 focus:ring-sky-400 ${inputPulse ? "input-bloom" : ""} ${addArmstrong ? "armstrong-add-glow" : ""}`}
+              className={`w-full rounded-xl border border-sky-200 bg-white px-4 py-3 text-base outline-none ring-offset-2 focus:ring-2 focus:ring-sky-400 ${inputPulse ? "input-bloom" : ""} ${addArmstrong ? "armstrong-add-glow" : ""}`}
             />
-            <button
-              ref={addButtonRef}
-              type="submit"
-              className={`min-h-12 rounded-xl bg-sky-600 px-4 py-3 font-semibold text-white transition-transform hover:scale-[1.03] hover:bg-sky-500 sm:px-5 ${addArmstrong ? "armstrong-add-kick" : ""}`}
-            >
-              Add
-            </button>
+            <div className="mt-3 flex items-center justify-between text-sm text-zinc-600">
+              <p>{remainingCount} remaining</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={clearCompleted}
+                  className="min-h-10 rounded-lg border border-sky-200 px-3 py-1.5 hover:bg-sky-50"
+                >
+                  Clear completed
+                </button>
+                <button
+                  ref={addButtonRef}
+                  type="submit"
+                  className={`min-h-10 rounded-lg px-3 py-1.5 font-semibold text-white transition-all ${input.trim() ? "bg-sky-600 hover:bg-sky-500" : "bg-sky-300"} ${addArmstrong ? "armstrong-add-kick" : ""}`}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
           </form>
 
-          <div className="mt-3 flex items-center justify-between text-sm text-zinc-600">
-            <p>{remainingCount} remaining</p>
-            <button
-              type="button"
-              onClick={clearCompleted}
-              className="min-h-10 rounded-lg border border-sky-200 px-3 py-1.5 hover:bg-sky-50"
-            >
-              Clear completed
-            </button>
-          </div>
-
-          <ul className="mt-4 space-y-2" aria-label="My Day tasks">
+          <ul className="mt-4 min-h-[26rem] space-y-2" aria-label="My Day tasks">
             {myDayTodos.length === 0 ? (
               <li className="rounded-xl border border-dashed border-zinc-300 p-5 text-sm text-zinc-500">
                 My Day is clear. Add your first task.
