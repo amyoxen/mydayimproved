@@ -1,0 +1,22 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.MyDayAndroid" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+    </style>
+
+    <style name="WidgetDialogTheme" parent="Theme.AppCompat.Light.Dialog.Alert">
+        <item name="colorPrimary">@color/widget_fab</item>
+        <item name="colorAccent">@color/widget_fab</item>
+        <item name="android:textColor">@color/widget_text</item>
+        <item name="android:textColorPrimary">@color/widget_text</item>
+        <item name="android:textColorSecondary">@color/widget_muted</item>
+        <item name="buttonBarPositiveButtonStyle">@style/WidgetDialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/WidgetDialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/WidgetDialogButton</item>
+    </style>
+
+    <style name="WidgetDialogButton" parent="Widget.AppCompat.Button.ButtonBar.AlertDialog">
+        <item name="android:textColor">@color/widget_fab</item>
+    </style>
+</resources>

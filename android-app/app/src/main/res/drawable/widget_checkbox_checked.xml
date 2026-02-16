@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Background filled square -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_checkbox" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <!-- White checkmark using vector path -->
+    <item
+        android:width="16dp"
+        android:height="16dp"
+        android:gravity="center">
+        <vector
+            android:width="16dp"
+            android:height="16dp"
+            android:viewportWidth="16"
+            android:viewportHeight="16">
+            <!-- Checkmark path -->
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M13,4 L6,11 L3,8 L4.5,6.5 L6,8 L11.5,2.5 Z" />
+        </vector>
+    </item>
+</layer-list>

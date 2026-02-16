@@ -1,0 +1,10 @@
+<resources>
+    <color name="widget_background">#B3E8D4F8</color>
+    <color name="widget_dialog_background">#E6E8D4F8</color>
+    <color name="widget_card">#00000000</color>
+    <color name="widget_text">#2D2D2D</color>
+    <color name="widget_muted">#6B6B6B</color>
+    <color name="widget_fab">#8B5A5A</color>
+    <color name="widget_checkbox">#5A5A5A</color>
+    <color name="widget_divider">#33000000</color>
+</resources>
