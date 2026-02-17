@@ -95,14 +95,14 @@ type InsightsData = {
   improve: string[];
 };
 
-function TenDayChart({
+function SevenDayChart({
   dayStatsMap,
 }: {
   dayStatsMap: Record<string, { total: number; completed: number }>;
 }) {
-  const days = Array.from({ length: 10 }, (_, i) => {
+  const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() - (9 - i));
+    d.setDate(d.getDate() - (6 - i));
     return getDayKey(d);
   });
 
@@ -124,12 +124,12 @@ function TenDayChart({
   const paddingTop = 8;
   const chartWidth = svgWidth - paddingLeft - paddingRight;
   const chartHeight = svgHeight - paddingBottom - paddingTop;
-  const groupWidth = chartWidth / 10;
+  const groupWidth = chartWidth / 7;
   const barWidth = groupWidth * 0.3;
   const gap = 2;
 
   return (
-    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" role="img" aria-label="10-day task trends">
+    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" role="img" aria-label="7-day task trends">
       {Array.from({ length: ySteps + 1 }, (_, i) => {
         const val = Math.round((maxVal / ySteps) * i);
         const y = paddingTop + chartHeight - (chartHeight * i) / ySteps;
@@ -262,8 +262,23 @@ export default function CloudTodoPage() {
   }, [loadTasks, userId]);
 
   const todayKey = useMemo(() => getDayKey(), []);
-  const myDayTodos = useMemo(() => todos.filter((todo) => todo.day === todayKey), [todos, todayKey]);
-  const archiveTodos = useMemo(() => todos.filter((todo) => todo.day !== todayKey), [todos, todayKey]);
+  const myDayTodos = useMemo(() => {
+    return todos
+      .filter((todo) => todo.day === todayKey)
+      .sort((a, b) => {
+        if (a.completed !== b.completed) return a.completed ? 1 : -1;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+  }, [todos, todayKey]);
+  const archiveCutoff = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return getDayKey(d);
+  }, []);
+  const archiveTodos = useMemo(
+    () => todos.filter((todo) => todo.day !== todayKey && todo.day >= archiveCutoff),
+    [todos, todayKey, archiveCutoff],
+  );
   const remainingCount = useMemo(() => myDayTodos.filter((todo) => !todo.completed).length, [myDayTodos]);
   const groupedArchive = useMemo(() => {
     return archiveTodos.reduce<Record<string, Todo[]>>((groups, todo) => {
@@ -624,9 +639,9 @@ export default function CloudTodoPage() {
           </ul>
 
           <section className="mt-7 rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-cyan-50 p-4">
-            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">10-Day Trends</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">7-Day Trends</p>
             <div className="mt-3">
-              <TenDayChart dayStatsMap={dayStatsMap} />
+              <SevenDayChart dayStatsMap={dayStatsMap} />
             </div>
             <div className="mt-2 flex items-center gap-4 text-xs text-zinc-600">
               <span className="flex items-center gap-1.5">

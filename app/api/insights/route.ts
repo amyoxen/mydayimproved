@@ -46,8 +46,8 @@ function computeStreaks(daySummaries: DaySummary[]): { current: number; longest:
   let longest = 0;
   let streak = 0;
 
-  // Walk backwards from today through the 14-day window
-  for (let i = 0; i < 14; i++) {
+  // Walk backwards from today through the 4-day window
+  for (let i = 0; i < 4; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = getDayKey(d);
@@ -102,7 +102,7 @@ function computeDayOfWeekStats(daySummaries: DaySummary[]): Record<string, { avg
 }
 
 function computeTrend(daySummaries: DaySummary[]): string {
-  if (daySummaries.length < 4) return "not enough data";
+  if (daySummaries.length < 2) return "not enough data";
   const mid = Math.floor(daySummaries.length / 2);
   const firstHalf = daySummaries.slice(0, mid);
   const secondHalf = daySummaries.slice(mid);
@@ -137,9 +137,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid session." }, { status: 401 });
     }
 
-    const fourteenDaysAgo = new Date();
-    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 13);
-    const cutoffDay = getDayKey(fourteenDaysAgo);
+    const fourDaysAgo = new Date();
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 3);
+    const cutoffDay = getDayKey(fourDaysAgo);
 
     const { data: tasks, error: taskError } = await anonClient
       .from("tasks")
@@ -200,9 +200,9 @@ export async function POST(request: NextRequest) {
     const totalCompleted = rows.filter((r) => r.completed).length;
     const overallRate = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
 
-    // Count days with zero tasks in the 14-day window
+    // Count days with zero tasks in the 4-day window
     let daysWithNoTasks = 0;
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 4; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = getDayKey(d);
@@ -231,10 +231,10 @@ export async function POST(request: NextRequest) {
       .map(([day, stats]) => `- ${day}: ${stats.avgRate}% avg completion (${stats.count} day${stats.count > 1 ? "s" : ""})`)
       .join("\n");
 
-    const prompt = `You are a habit-building coach and productivity analyst. Analyze this user's task data from the last 14 days and provide actionable, personalized insights focused on helping them build consistent habits.
+    const prompt = `You are a habit-building coach and productivity analyst. Analyze this user's task data from the last 4 days and provide actionable, personalized insights focused on helping them build consistent habits.
 
 === OVERVIEW ===
-- Active days: ${daySummaries.length}/14 (${daysWithNoTasks} days with no tasks)
+- Active days: ${daySummaries.length}/4 (${daysWithNoTasks} days with no tasks)
 - Total tasks: ${totalTasks} created, ${totalCompleted} completed (${overallRate}% overall)
 - Current streak: ${streaks.current} consecutive days
 - Longest streak: ${streaks.longest} consecutive days
