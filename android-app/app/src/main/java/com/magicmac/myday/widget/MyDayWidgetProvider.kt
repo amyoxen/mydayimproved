@@ -1,5 +1,6 @@
 package com.magicmac.myday.widget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -16,17 +17,32 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 
 class MyDayWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         appWidgetIds.forEach { appWidgetId ->
             updateWidget(context, appWidgetManager, appWidgetId)
         }
+        scheduleMidnightRefresh(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
+            ACTION_MIDNIGHT_REFRESH -> {
+                // Midnight crossed - reload tasks for the new day
+                val pendingResult = goAsync()
+                CoroutineScope(Dispatchers.IO).launch {
+                    runCatching {
+                        val repository = TaskRepository(context.applicationContext)
+                        repository.loadTasks(refreshWidget = true)
+                    }
+                    pendingResult.finish()
+                }
+                // Schedule the next midnight alarm
+                scheduleMidnightRefresh(context)
+            }
             ACTION_TOGGLE_TASK -> {
                 val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return
                 val currentCompleted = intent.getBooleanExtra(EXTRA_TASK_COMPLETED, false)
@@ -58,9 +74,30 @@ class MyDayWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_TOGGLE_TASK = "com.magicmac.myday.widget.ACTION_TOGGLE_TASK"
         const val ACTION_EDIT_TASK = "com.magicmac.myday.widget.ACTION_EDIT_TASK"
+        const val ACTION_MIDNIGHT_REFRESH = "com.magicmac.myday.widget.ACTION_MIDNIGHT_REFRESH"
         const val EXTRA_TASK_ID = "extra_task_id"
         const val EXTRA_TASK_TEXT = "extra_task_text"
         const val EXTRA_TASK_COMPLETED = "extra_task_completed"
+
+        fun scheduleMidnightRefresh(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, MyDayWidgetProvider::class.java).apply {
+                action = ACTION_MIDNIGHT_REFRESH
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            // Schedule for next midnight + 5 seconds buffer
+            val midnight = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 5)
+                set(Calendar.MILLISECOND, 0)
+            }
+            alarmManager.set(AlarmManager.RTC_WAKEUP, midnight.timeInMillis, pendingIntent)
+        }
 
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)

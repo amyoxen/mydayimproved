@@ -1,6 +1,7 @@
 package com.magicmac.myday.ui
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -9,6 +10,9 @@ import com.magicmac.myday.data.WidgetTaskCache
 import com.magicmac.myday.data.todayKey
 import com.magicmac.myday.model.AuthSession
 import com.magicmac.myday.model.Task
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +37,30 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
     private val widgetCache = WidgetTaskCache(context)
 
+    // Listen for widget cache changes (widget → app sync while app is open)
+    private val widgetPrefs: SharedPreferences =
+        context.getSharedPreferences("my_day_widget", Context.MODE_PRIVATE)
+    private var suppressPrefsListener = false
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "tasks" && !suppressPrefsListener) {
+            viewModelScope.launch {
+                delay(300)
+                runCatching { repository.loadTasks(refreshWidget = false) }
+                    .onSuccess { tasks -> _uiState.update { it.copy(tasks = tasks) } }
+            }
+        }
+    }
+
     init {
+        widgetPrefs.registerOnSharedPreferenceChangeListener(prefsListener)
+
+        // Collect realtime task updates from repository
+        viewModelScope.launch {
+            repository.tasksFlow.collect { tasks ->
+                _uiState.update { it.copy(tasks = tasks) }
+            }
+        }
+
         viewModelScope.launch {
             val initialSession = repository.getSession()
             val tasks = if (initialSession != null) {
@@ -45,6 +72,20 @@ class MainViewModel(
             val currentSession = repository.getSession()
             _uiState.value = MainUiState(loading = false, session = currentSession, tasks = tasks)
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        widgetPrefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        repository.disconnectRealtime()
+    }
+
+    fun connectRealtime() {
+        viewModelScope.launch { repository.connectRealtime() }
+    }
+
+    fun disconnectRealtime() {
+        repository.disconnectRealtime()
     }
 
     fun onEmailChanged(value: String) = _uiState.update { it.copy(emailInput = value) }
@@ -60,6 +101,7 @@ class MainViewModel(
             runCatching {
                 val session = repository.signIn(state.emailInput.trim(), state.passwordInput)
                 val tasks = repository.loadTasks()
+                repository.connectRealtime()
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -79,6 +121,7 @@ class MainViewModel(
 
     fun signOut() {
         viewModelScope.launch {
+            disconnectRealtime()
             repository.signOut()
             _uiState.value = MainUiState(loading = false)
         }
@@ -158,7 +201,12 @@ class MainViewModel(
         }
     }
 
-    fun archivedTasks(): Map<String, List<Task>> = _uiState.value.tasks.filter { it.day != todayKey() }.groupBy { it.day }
+    fun archivedTasks(): Map<String, List<Task>> {
+        val cutoff = LocalDate.now().minusDays(7).format(DateTimeFormatter.ISO_LOCAL_DATE)
+        return _uiState.value.tasks
+            .filter { it.day != todayKey() && it.day >= cutoff }
+            .groupBy { it.day }
+    }
 }
 
 class MainViewModelFactory(

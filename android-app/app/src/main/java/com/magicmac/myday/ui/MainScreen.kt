@@ -40,6 +40,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -62,7 +63,10 @@ fun MainScreen(vm: MainViewModel) {
     val state by vm.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Refresh tasks when app comes to foreground (with delay for widget sync)
+    // Track last known date to detect midnight crossing
+    val lastDate = remember { mutableStateOf(java.time.LocalDate.now()) }
+
+    // Refresh tasks when app comes to foreground and manage realtime connection
     DisposableEffect(lifecycleOwner) {
         var lastPauseTime = 0L
         val observer = LifecycleEventObserver { _, event ->
@@ -72,13 +76,24 @@ fun MainScreen(vm: MainViewModel) {
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     if (state.session != null) {
+                        val today = java.time.LocalDate.now()
+                        val dateChanged = today != lastDate.value
+                        if (dateChanged) {
+                            lastDate.value = today
+                        }
                         val pauseDuration = System.currentTimeMillis() - lastPauseTime
-                        // Only refresh if app was in background for more than 2 seconds
+                        // Refresh if date changed or app was in background for more than 2 seconds
                         // This avoids refreshing when just opening widget dialogs
-                        if (pauseDuration > 2000 || lastPauseTime == 0L) {
+                        if (dateChanged || pauseDuration > 2000 || lastPauseTime == 0L) {
                             vm.refresh()
                         }
+                        // Connect realtime WebSocket when app is visible
+                        vm.connectRealtime()
                     }
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    // Disconnect realtime when app is no longer visible
+                    vm.disconnectRealtime()
                 }
                 else -> {}
             }
@@ -86,6 +101,19 @@ fun MainScreen(vm: MainViewModel) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Auto-refresh at midnight if app is in the foreground
+    LaunchedEffect(state.session) {
+        if (state.session == null) return@LaunchedEffect
+        while (true) {
+            val now = java.time.LocalDateTime.now()
+            val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay()
+            val delayMs = java.time.Duration.between(now, nextMidnight).toMillis() + 2000 // 2s buffer
+            kotlinx.coroutines.delay(delayMs)
+            lastDate.value = java.time.LocalDate.now()
+            vm.refresh()
         }
     }
 

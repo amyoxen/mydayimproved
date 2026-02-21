@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -26,6 +28,22 @@ class TaskRepository(context: Context) {
     private val sessionStore = SessionStore(appContext)
     private val widgetCache = WidgetTaskCache(appContext)
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _tasksFlow = MutableSharedFlow<List<Task>>(extraBufferCapacity = 1)
+    val tasksFlow: SharedFlow<List<Task>> = _tasksFlow
+
+    private val realtimeClient by lazy {
+        SupabaseRealtimeClient(
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            onTasksChanged = {
+                backgroundScope.launch {
+                    runCatching { loadTasks(refreshWidget = true) }
+                        .onSuccess { tasks -> _tasksFlow.tryEmit(tasks) }
+                }
+            },
+        )
+    }
 
     private val retrofit: Retrofit by lazy {
         val logger = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
@@ -48,6 +66,15 @@ class TaskRepository(context: Context) {
 
     suspend fun getSession(): AuthSession? = sessionStore.sessionFlow.first()
 
+    suspend fun connectRealtime() {
+        val session = getSession() ?: return
+        realtimeClient.connect(session.accessToken, session.userId)
+    }
+
+    fun disconnectRealtime() {
+        realtimeClient.disconnect()
+    }
+
     /**
      * Refreshes the access token using the stored refresh token.
      * Returns the new session if successful, null if refresh failed.
@@ -66,6 +93,7 @@ class TaskRepository(context: Context) {
                 email = response.user.email,
             )
             sessionStore.save(newSession)
+            realtimeClient.updateToken(newSession.accessToken)
             newSession
         } catch (e: Exception) {
             null
@@ -117,6 +145,7 @@ class TaskRepository(context: Context) {
     }
 
     suspend fun signOut() {
+        disconnectRealtime()
         sessionStore.clear()
         widgetCache.saveTasks(emptyList<Task>())
         MyDayWidgetProvider.refreshAll(appContext)
@@ -142,9 +171,25 @@ class TaskRepository(context: Context) {
 
     suspend fun addTask(text: String): Task {
         if (getSession() == null) error("Not signed in")
+        realtimeClient.suppressChanges()
         val today = todayKey()
+        val tempId = "temp-${UUID.randomUUID()}"
+        val now = java.time.Instant.now().toString()
 
-        // Background sync - simple and immediate
+        // Optimistic update - add to widget cache immediately
+        val currentTasks = widgetCache.getTasks()
+        val maxSortOrder = currentTasks.filter { !it.completed }.maxOfOrNull { it.sortOrder } ?: -1
+        val tempWidgetTask = WidgetTask(
+            id = tempId,
+            text = text,
+            completed = false,
+            createdAt = now,
+            sortOrder = maxSortOrder + 1,
+        )
+        widgetCache.saveWidgetTasksDirect(currentTasks + tempWidgetTask)
+        MyDayWidgetProvider.refreshAll(appContext)
+
+        // Background sync
         backgroundScope.launch {
             try {
                 withAutoRefresh { session ->
@@ -154,39 +199,40 @@ class TaskRepository(context: Context) {
                         body = listOf(CreateTaskRequest(userId = session.userId, text = text, completed = false, day = today)),
                     ).first()
                 }
-                // Reload fresh data and refresh widget
+                // Reload fresh data (quietly update cache, no visible widget refresh)
                 loadTasks(refreshWidget = true)
             } catch (e: Exception) {
+                // On error, reload from server to roll back optimistic update
                 runCatching { loadTasks(refreshWidget = true) }
             }
         }
 
-        // Return a temporary task for UI (real task will be loaded from server)
+        // Return a temporary task for in-app UI
         return Task(
-            id = "temp-${UUID.randomUUID()}",
+            id = tempId,
             text = text,
             completed = false,
-            createdAt = java.time.Instant.now().toString(),
+            createdAt = now,
             day = today
         )
     }
 
     suspend fun toggleTask(taskId: String, completedNow: Boolean) {
         if (getSession() == null) return
+        realtimeClient.suppressChanges()
 
-        // Everything in background - returns instantly
-        backgroundScope.launch {
-            // Instant feedback - update cache and refresh
-            val currentTasks = widgetCache.getTasks()
-            if (currentTasks.isNotEmpty()) {
-                val updatedTasks = currentTasks.map { task ->
-                    if (task.id == taskId) task.copy(completed = completedNow) else task
-                }
-                widgetCache.saveWidgetTasksDirect(updatedTasks)
-                MyDayWidgetProvider.refreshAll(appContext)
+        // Instant feedback - update cache and refresh before background sync
+        val currentTasks = widgetCache.getTasks()
+        if (currentTasks.isNotEmpty()) {
+            val updatedTasks = currentTasks.map { task ->
+                if (task.id == taskId) task.copy(completed = completedNow) else task
             }
+            widgetCache.saveWidgetTasksDirect(updatedTasks)
+            MyDayWidgetProvider.refreshAll(appContext)
+        }
 
-            // Server sync with auto-refresh
+        // Server sync in background
+        backgroundScope.launch {
             try {
                 withAutoRefresh { session ->
                     tasksApi.updateTask(
@@ -196,8 +242,9 @@ class TaskRepository(context: Context) {
                         body = UpdateTaskRequest(completed = completedNow),
                     )
                 }
-                loadTasks(refreshWidget = true)
+                loadTasks(refreshWidget = false)
             } catch (e: Exception) {
+                // On error, reload and refresh widget to roll back
                 runCatching { loadTasks(refreshWidget = true) }
             }
         }
@@ -205,20 +252,20 @@ class TaskRepository(context: Context) {
 
     suspend fun updateTaskText(taskId: String, newText: String) {
         if (getSession() == null) return
+        realtimeClient.suppressChanges()
 
-        // Everything in background - returns instantly
-        backgroundScope.launch {
-            // Instant feedback - update cache and refresh
-            val currentTasks = widgetCache.getTasks()
-            if (currentTasks.isNotEmpty()) {
-                val updatedTasks = currentTasks.map { task ->
-                    if (task.id == taskId) task.copy(text = newText) else task
-                }
-                widgetCache.saveWidgetTasksDirect(updatedTasks)
-                MyDayWidgetProvider.refreshAll(appContext)
+        // Instant feedback - update cache and refresh before background sync
+        val currentTasks = widgetCache.getTasks()
+        if (currentTasks.isNotEmpty()) {
+            val updatedTasks = currentTasks.map { task ->
+                if (task.id == taskId) task.copy(text = newText) else task
             }
+            widgetCache.saveWidgetTasksDirect(updatedTasks)
+            MyDayWidgetProvider.refreshAll(appContext)
+        }
 
-            // Server sync with auto-refresh
+        // Server sync in background
+        backgroundScope.launch {
             try {
                 withAutoRefresh { session ->
                     tasksApi.updateTaskText(
@@ -228,8 +275,9 @@ class TaskRepository(context: Context) {
                         body = UpdateTaskTextRequest(text = newText),
                     )
                 }
-                loadTasks(refreshWidget = true)
+                loadTasks(refreshWidget = false)
             } catch (e: Exception) {
+                // On error, reload and refresh widget to roll back
                 runCatching { loadTasks(refreshWidget = true) }
             }
         }
@@ -237,18 +285,18 @@ class TaskRepository(context: Context) {
 
     suspend fun deleteTask(taskId: String) {
         if (getSession() == null) return
+        realtimeClient.suppressChanges()
 
-        // Everything in background - returns instantly
+        // Instant feedback - update cache and refresh before background sync
+        val currentTasks = widgetCache.getTasks()
+        if (currentTasks.isNotEmpty()) {
+            val updatedTasks = currentTasks.filter { it.id != taskId }
+            widgetCache.saveWidgetTasksDirect(updatedTasks)
+            MyDayWidgetProvider.refreshAll(appContext)
+        }
+
+        // Server sync in background
         backgroundScope.launch {
-            // Instant feedback - update cache and refresh
-            val currentTasks = widgetCache.getTasks()
-            if (currentTasks.isNotEmpty()) {
-                val updatedTasks = currentTasks.filter { it.id != taskId }
-                widgetCache.saveWidgetTasksDirect(updatedTasks)
-                MyDayWidgetProvider.refreshAll(appContext)
-            }
-
-            // Server sync with auto-refresh
             try {
                 withAutoRefresh { session ->
                     tasksApi.deleteTask(
@@ -257,8 +305,9 @@ class TaskRepository(context: Context) {
                         idEq = "eq.$taskId",
                     )
                 }
-                loadTasks(refreshWidget = true)
+                loadTasks(refreshWidget = false)
             } catch (e: Exception) {
+                // On error, reload and refresh widget to roll back
                 runCatching { loadTasks(refreshWidget = true) }
             }
         }
