@@ -27,7 +27,6 @@ class SupabaseRealtimeClient(
 
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
@@ -60,11 +59,11 @@ class SupabaseRealtimeClient(
             .replace("https://", "wss://")
             .replace("http://", "ws://")
             .trimEnd('/')
-        val url = "$wsUrl/realtime/v1/websocket?apikey=$apiKey&vsn=1.0.0"
+        val url = "$wsUrl/realtime/v1/websocket?apikey=$apiKey&vsn=2.0.0"
 
         val request = Request.Builder().url(url).build()
         webSocket = client.newWebSocket(request, RealtimeWebSocketListener())
-        Log.d(TAG, "Connecting to Supabase Realtime...")
+        Log.d(TAG, "Connecting to Supabase Realtime (vsn 2.0.0)...")
     }
 
     fun disconnect() {
@@ -105,6 +104,7 @@ class SupabaseRealtimeClient(
 
     private fun nextRef(): String = refCounter.getAndIncrement().toString()
 
+    /** Send a message in Phoenix vsn 2.0.0 JSON array format: [join_ref, ref, topic, event, payload] */
     private fun sendMessage(
         joinRef: String?,
         ref: String,
@@ -119,7 +119,9 @@ class SupabaseRealtimeClient(
             put(event)
             put(payload)
         }
-        webSocket?.send(msg.toString())
+        val text = msg.toString()
+        Log.d(TAG, "WS send: $text")
+        webSocket?.send(text)
     }
 
     private fun joinChannel() {
@@ -200,8 +202,9 @@ class SupabaseRealtimeClient(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            Log.d(TAG, "WS message: $text")
+            Log.d(TAG, "WS recv: $text")
             try {
+                // vsn 2.0.0 array format: [join_ref, ref, topic, event, payload]
                 val msg = JSONArray(text)
                 val event = msg.optString(3)
                 val payload = msg.optJSONObject(4)
@@ -214,7 +217,6 @@ class SupabaseRealtimeClient(
                             val response = payload?.optJSONObject("response")
                             val pgChanges = response?.optJSONArray("postgres_changes")
                             if (pgChanges != null) {
-                                // This is a successful join reply
                                 isConnected = true
                                 reconnectAttempt = 0
                                 Log.d(TAG, "Channel joined successfully, postgres_changes: $pgChanges")
@@ -264,7 +266,6 @@ class SupabaseRealtimeClient(
             isConnecting = false
             isConnected = false
             heartbeatJob?.cancel()
-            // Don't reconnect if we deliberately closed
             if (code != 1000) {
                 scheduleReconnect()
             }

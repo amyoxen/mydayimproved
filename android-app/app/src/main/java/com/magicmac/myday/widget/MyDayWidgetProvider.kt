@@ -7,6 +7,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.RemoteViews
 import com.magicmac.myday.MainActivity
 import com.magicmac.myday.R
@@ -25,6 +26,22 @@ class MyDayWidgetProvider : AppWidgetProvider() {
             updateWidget(context, appWidgetManager, appWidgetId)
         }
         scheduleMidnightRefresh(context)
+        schedulePeriodicRefresh(context)
+        // Fetch fresh data from server on periodic updates
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                val repository = TaskRepository(context.applicationContext)
+                repository.loadTasks(refreshWidget = true)
+            }
+            pendingResult.finish()
+        }
+    }
+
+    override fun onDisabled(context: Context) {
+        super.onDisabled(context)
+        // Cancel periodic refresh when last widget is removed
+        cancelPeriodicRefresh(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -42,6 +59,20 @@ class MyDayWidgetProvider : AppWidgetProvider() {
                 }
                 // Schedule the next midnight alarm
                 scheduleMidnightRefresh(context)
+            }
+            ACTION_PERIODIC_REFRESH -> {
+                val pendingResult = goAsync()
+                CoroutineScope(Dispatchers.IO).launch {
+                    runCatching {
+                        val repository = TaskRepository(context.applicationContext)
+                        repository.loadTasks(refreshWidget = true)
+                    }.onFailure {
+                        Log.e(TAG, "Periodic refresh failed", it)
+                    }
+                    pendingResult.finish()
+                }
+                // Schedule the next periodic refresh
+                schedulePeriodicRefresh(context)
             }
             ACTION_TOGGLE_TASK -> {
                 val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return
@@ -72,9 +103,11 @@ class MyDayWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private const val TAG = "MyDayWidget"
         const val ACTION_TOGGLE_TASK = "com.magicmac.myday.widget.ACTION_TOGGLE_TASK"
         const val ACTION_EDIT_TASK = "com.magicmac.myday.widget.ACTION_EDIT_TASK"
         const val ACTION_MIDNIGHT_REFRESH = "com.magicmac.myday.widget.ACTION_MIDNIGHT_REFRESH"
+        const val ACTION_PERIODIC_REFRESH = "com.magicmac.myday.widget.ACTION_PERIODIC_REFRESH"
         const val EXTRA_TASK_ID = "extra_task_id"
         const val EXTRA_TASK_TEXT = "extra_task_text"
         const val EXTRA_TASK_COMPLETED = "extra_task_completed"
@@ -97,6 +130,32 @@ class MyDayWidgetProvider : AppWidgetProvider() {
                 set(Calendar.MILLISECOND, 0)
             }
             alarmManager.set(AlarmManager.RTC_WAKEUP, midnight.timeInMillis, pendingIntent)
+        }
+
+        fun schedulePeriodicRefresh(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, MyDayWidgetProvider::class.java).apply {
+                action = ACTION_PERIODIC_REFRESH
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, 1, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            // Schedule next refresh in 60 seconds, using setAndAllowWhileIdle for doze mode
+            val nextRefresh = System.currentTimeMillis() + 60_000
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextRefresh, pendingIntent)
+        }
+
+        private fun cancelPeriodicRefresh(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, MyDayWidgetProvider::class.java).apply {
+                action = ACTION_PERIODIC_REFRESH
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, 1, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            alarmManager.cancel(pendingIntent)
         }
 
         fun refreshAll(context: Context) {

@@ -7,6 +7,7 @@ import com.magicmac.myday.model.Task
 import com.magicmac.myday.widget.MyDayWidgetProvider
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,8 +68,13 @@ class TaskRepository(context: Context) {
     suspend fun getSession(): AuthSession? = sessionStore.sessionFlow.first()
 
     suspend fun connectRealtime() {
-        val session = getSession() ?: return
+        val session = getSession() ?: run {
+            Log.d("TaskRepository", "connectRealtime: no session")
+            return
+        }
         realtimeClient.connect(session.accessToken, session.userId)
+        // Ensure widget periodic refresh alarm is running (works even when app is backgrounded)
+        MyDayWidgetProvider.schedulePeriodicRefresh(appContext)
     }
 
     fun disconnectRealtime() {
@@ -152,7 +158,10 @@ class TaskRepository(context: Context) {
     }
 
     suspend fun loadTasks(refreshWidget: Boolean = true): List<Task> {
-        if (getSession() == null) return emptyList()
+        if (getSession() == null) {
+            Log.d("TaskRepository", "loadTasks: no session, skipping")
+            return emptyList()
+        }
         val tasks = withAutoRefresh { session ->
             tasksApi.getTasks(
                 apiKey = apiKey,
@@ -160,8 +169,9 @@ class TaskRepository(context: Context) {
                 userIdEq = "eq.${session.userId}",
             )
         }
+        val todayTasks = tasks.filter { it.day == todayKey() }
         // Update cache
-        widgetCache.saveTasks(tasks.filter { it.day == todayKey() })
+        widgetCache.saveTasks(todayTasks)
         // Only refresh widget if requested
         if (refreshWidget) {
             MyDayWidgetProvider.refreshAll(appContext)

@@ -91,10 +91,6 @@ fun MainScreen(vm: MainViewModel) {
                         vm.connectRealtime()
                     }
                 }
-                Lifecycle.Event.ON_STOP -> {
-                    // Disconnect realtime when app is no longer visible
-                    vm.disconnectRealtime()
-                }
                 else -> {}
             }
         }

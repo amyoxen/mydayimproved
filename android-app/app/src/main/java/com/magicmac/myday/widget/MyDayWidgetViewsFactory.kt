@@ -3,26 +3,38 @@ package com.magicmac.myday.widget
 import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
+import android.util.Log
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import com.magicmac.myday.R
+import com.magicmac.myday.data.TaskRepository
 import com.magicmac.myday.data.WidgetTask
 import com.magicmac.myday.data.WidgetTaskCache
+import kotlinx.coroutines.runBlocking
 
 class MyDayWidgetViewsFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
     private val cache = WidgetTaskCache(context)
     private var tasks: List<WidgetTask> = emptyList()
 
     override fun onCreate() {
-        tasks = cache.getTasks().sortedWith(
-            compareBy<WidgetTask> { it.completed }
-                .thenBy { if (!it.completed) it.sortOrder else 0 }
-                .thenByDescending { it.createdAt }
-        )
+        tasks = loadAndSort()
     }
 
     override fun onDataSetChanged() {
-        tasks = cache.getTasks().sortedWith(
+        // Fetch fresh data from server to ensure widget shows latest state
+        try {
+            val repository = TaskRepository(context.applicationContext)
+            runBlocking {
+                repository.loadTasks(refreshWidget = false)
+            }
+        } catch (e: Exception) {
+            Log.e("WidgetViewsFactory", "Failed to refresh from server", e)
+        }
+        tasks = loadAndSort()
+    }
+
+    private fun loadAndSort(): List<WidgetTask> {
+        return cache.getTasks().sortedWith(
             compareBy<WidgetTask> { it.completed }
                 .thenBy { if (!it.completed) it.sortOrder else 0 }
                 .thenByDescending { it.createdAt }

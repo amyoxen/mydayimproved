@@ -50,3 +50,16 @@ create policy "users can delete own tasks"
 on public.tasks
 for delete
 using (auth.uid() = user_id);
+
+-- Use full replica identity so DELETE events include all columns (not just the primary key).
+-- Without this, Realtime filters like user_id=eq.X cannot match DELETE events.
+alter table public.tasks replica identity full;
+
+-- Enable Supabase Realtime for the tasks table so all clients
+-- (web, Android app, widget) receive instant push updates on changes.
+do $$
+begin
+  alter publication supabase_realtime add table public.tasks;
+exception when duplicate_object then
+  null;
+end $$;

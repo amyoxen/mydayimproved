@@ -71,6 +71,10 @@ class MainViewModel(
             // Re-check session after attempting to load - it might have been cleared due to 401
             val currentSession = repository.getSession()
             _uiState.value = MainUiState(loading = false, session = currentSession, tasks = tasks)
+            // Connect realtime now that session is loaded
+            if (currentSession != null) {
+                repository.connectRealtime()
+            }
         }
     }
 
