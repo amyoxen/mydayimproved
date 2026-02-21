@@ -100,7 +100,7 @@ class SupabaseRealtimeClient(
 
     private fun channelTopic(): String? {
         val userId = currentUserId ?: return null
-        return "realtime:public:tasks:user_id=eq.$userId"
+        return "realtime:tasks-$userId"
     }
 
     private fun nextRef(): String = refCounter.getAndIncrement().toString()
@@ -200,6 +200,7 @@ class SupabaseRealtimeClient(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            Log.d(TAG, "WS message: $text")
             try {
                 val msg = JSONArray(text)
                 val event = msg.optString(3)
@@ -208,6 +209,7 @@ class SupabaseRealtimeClient(
                 when (event) {
                     "phx_reply" -> {
                         val status = payload?.optString("status")
+                        Log.d(TAG, "phx_reply status=$status")
                         if (status == "ok") {
                             val response = payload?.optJSONObject("response")
                             val pgChanges = response?.optJSONArray("postgres_changes")
@@ -215,13 +217,16 @@ class SupabaseRealtimeClient(
                                 // This is a successful join reply
                                 isConnected = true
                                 reconnectAttempt = 0
-                                Log.d(TAG, "Channel joined successfully")
+                                Log.d(TAG, "Channel joined successfully, postgres_changes: $pgChanges")
                             }
                         } else if (status == "error") {
                             Log.e(TAG, "Channel error: $payload")
+                            isConnected = false
+                            scheduleReconnect()
                         }
                     }
                     "postgres_changes" -> {
+                        Log.d(TAG, "postgres_changes event received")
                         onChangeReceived()
                     }
                     "phx_error" -> {
@@ -236,6 +241,9 @@ class SupabaseRealtimeClient(
                     }
                     "system" -> {
                         Log.d(TAG, "System message: $payload")
+                    }
+                    else -> {
+                        Log.d(TAG, "Unhandled event: $event")
                     }
                 }
             } catch (e: Exception) {

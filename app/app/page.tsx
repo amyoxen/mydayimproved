@@ -250,11 +250,14 @@ export default function CloudTodoPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "tasks", filter: `user_id=eq.${userId}` },
-        () => {
+        (payload) => {
+          console.log("[Realtime] postgres_changes received:", payload);
           void loadTasks(userId);
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("[Realtime] subscription status:", status);
+      });
 
     return () => {
       void supabase.removeChannel(channel);
