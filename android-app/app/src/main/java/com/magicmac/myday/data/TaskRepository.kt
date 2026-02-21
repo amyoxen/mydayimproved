@@ -73,8 +73,6 @@ class TaskRepository(context: Context) {
             return
         }
         realtimeClient.connect(session.accessToken, session.userId)
-        // Ensure widget periodic refresh alarm is running (works even when app is backgrounded)
-        MyDayWidgetProvider.schedulePeriodicRefresh(appContext)
     }
 
     fun disconnectRealtime() {

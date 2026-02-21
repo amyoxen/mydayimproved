@@ -3,14 +3,11 @@ package com.magicmac.myday.widget
 import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
-import android.util.Log
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import com.magicmac.myday.R
-import com.magicmac.myday.data.TaskRepository
 import com.magicmac.myday.data.WidgetTask
 import com.magicmac.myday.data.WidgetTaskCache
-import kotlinx.coroutines.runBlocking
 
 class MyDayWidgetViewsFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
     private val cache = WidgetTaskCache(context)
@@ -21,15 +18,6 @@ class MyDayWidgetViewsFactory(private val context: Context) : RemoteViewsService
     }
 
     override fun onDataSetChanged() {
-        // Fetch fresh data from server to ensure widget shows latest state
-        try {
-            val repository = TaskRepository(context.applicationContext)
-            runBlocking {
-                repository.loadTasks(refreshWidget = false)
-            }
-        } catch (e: Exception) {
-            Log.e("WidgetViewsFactory", "Failed to refresh from server", e)
-        }
         tasks = loadAndSort()
     }
 

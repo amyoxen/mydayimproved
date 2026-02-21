@@ -47,7 +47,6 @@
                 <action android:name="com.magicmac.myday.widget.ACTION_TOGGLE_TASK" />
                 <action android:name="com.magicmac.myday.widget.ACTION_EDIT_TASK" />
                 <action android:name="com.magicmac.myday.widget.ACTION_MIDNIGHT_REFRESH" />
-                <action android:name="com.magicmac.myday.widget.ACTION_PERIODIC_REFRESH" />
             </intent-filter>
 
             <meta-data
