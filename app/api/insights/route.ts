@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { getSupabaseAnonServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
+import { Database } from "@/lib/supabase-types";
 
 type TaskRow = {
   text: string;
@@ -131,7 +132,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing bearer token." }, { status: 401 });
     }
 
-    const anonClient = getSupabaseAnonServerClient();
+    const anonClient = createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } },
+    );
     const { data: userData, error: userError } = await anonClient.auth.getUser(token);
     if (userError || !userData.user) {
       return NextResponse.json({ error: "Invalid session." }, { status: 401 });
