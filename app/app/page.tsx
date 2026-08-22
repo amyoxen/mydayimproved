@@ -176,6 +176,7 @@ export default function CloudTodoPage() {
   const [input, setInput] = useState("");
   const [newTaskScore, setNewTaskScore] = useState<TaskScore>(1);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [scoresAvailable, setScoresAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -193,16 +194,30 @@ export default function CloudTodoPage() {
 
   const loadTasks = useCallback(async (uid: string) => {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("id,text,completed,created_at,day,score")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false });
+    const fieldSets = [
+      { fields: "id,text,completed,created_at,day,score", includesScore: true },
+      { fields: "id,text,completed,created_at,day", includesScore: false },
+    ];
 
-    if (error) return;
+    let data: TaskRow[] | null = null;
+    let includesScore = false;
+    for (const fieldSet of fieldSets) {
+      const result = await supabase
+        .from("tasks")
+        .select(fieldSet.fields)
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false });
+      if (!result.error) {
+        data = (result.data ?? []) as unknown as TaskRow[];
+        includesScore = fieldSet.includesScore;
+        break;
+      }
+    }
 
-    const rows = (data ?? []) as TaskRow[];
-    const mapped: Todo[] = rows.map((row) => ({
+    if (!data) return;
+    setScoresAvailable(includesScore);
+
+    const mapped: Todo[] = data.map((row) => ({
       id: row.id,
       text: row.text,
       completed: row.completed,
@@ -432,7 +447,7 @@ export default function CloudTodoPage() {
     if (!text) return;
 
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("tasks")
       .insert({
         user_id: userId,
@@ -444,7 +459,21 @@ export default function CloudTodoPage() {
       .select("id")
       .single<{ id: string }>();
 
-    if (error) return;
+    if (error && scoresAvailable) {
+      ({ data, error } = await supabase
+        .from("tasks")
+        .insert({
+          user_id: userId,
+          text,
+          completed: false,
+          day: todayKey,
+        })
+        .select("id")
+        .single<{ id: string }>());
+      if (!error) setScoresAvailable(false);
+    }
+
+    if (error || !data) return;
 
     await loadTasks(userId);
     setNewTaskPulseId(data.id);
@@ -457,6 +486,7 @@ export default function CloudTodoPage() {
   };
 
   const updateTodoScore = async (id: string, score: TaskScore) => {
+    if (!scoresAvailable) return;
     const supabase = getSupabaseClient();
     const { error } = await supabase.from("tasks").update({ score }).eq("id", id);
     if (!error && userId) {
@@ -508,7 +538,7 @@ export default function CloudTodoPage() {
       text: todo.text,
       completed: false,
       day: todayKey,
-      score: todo.score,
+      ...(scoresAvailable ? { score: todo.score } : {}),
     });
     await loadTasks(userId);
   };
@@ -620,6 +650,7 @@ export default function CloudTodoPage() {
                 <select
                   value={newTaskScore}
                   onChange={(event) => setNewTaskScore(toTaskScore(Number(event.target.value)))}
+                  disabled={!scoresAvailable}
                   className="rounded-lg bg-sky-50 px-2 py-1 text-sky-800 outline-none focus:ring-2 focus:ring-sky-400"
                   aria-label="Score for new task"
                 >
@@ -629,6 +660,9 @@ export default function CloudTodoPage() {
                 </select>
               </label>
             </div>
+            {!scoresAvailable ? (
+              <p className="mt-2 text-xs text-amber-700">Task scoring is temporarily unavailable; new tasks will use 1 point.</p>
+            ) : null}
             <div className="mt-3 flex items-center justify-between text-sm text-zinc-600">
               <p>
                 {remainingCount} {remainingCount === 1 ? "task" : "tasks"} remaining
@@ -687,6 +721,7 @@ export default function CloudTodoPage() {
                       id={`score-${todo.id}`}
                       value={todo.score}
                       onChange={(event) => void updateTodoScore(todo.id, toTaskScore(Number(event.target.value)))}
+                      disabled={!scoresAvailable}
                       className="min-h-10 rounded-lg border border-sky-200 bg-sky-50 px-2 text-sm font-medium text-sky-800 outline-none focus:ring-2 focus:ring-sky-400"
                       aria-label={`Score for ${todo.text}`}
                     >
