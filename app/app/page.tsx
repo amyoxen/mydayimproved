@@ -11,6 +11,7 @@ type Todo = {
   completed: boolean;
   createdAt: string;
   day: string;
+  score: TaskScore;
 };
 
 type TaskRow = {
@@ -19,7 +20,15 @@ type TaskRow = {
   completed: boolean;
   created_at: string;
   day: string;
+  score: number | null;
 };
+
+const TASK_SCORES = [1, 3, 5, 10] as const;
+type TaskScore = (typeof TASK_SCORES)[number];
+
+function toTaskScore(score: number | null | undefined): TaskScore {
+  return TASK_SCORES.includes(score as TaskScore) ? (score as TaskScore) : 1;
+}
 
 type ConfettiPiece = {
   id: string;
@@ -98,7 +107,7 @@ type InsightsData = {
 function SevenDayChart({
   dayStatsMap,
 }: {
-  dayStatsMap: Record<string, { total: number; completed: number }>;
+  dayStatsMap: Record<string, { planned: number; achieved: number }>;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -109,11 +118,11 @@ function SevenDayChart({
   const dayData = days.map((key) => ({
     key,
     label: new Date(key + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }),
-    total: dayStatsMap[key]?.total ?? 0,
-    completed: dayStatsMap[key]?.completed ?? 0,
+    planned: dayStatsMap[key]?.planned ?? 0,
+    achieved: dayStatsMap[key]?.achieved ?? 0,
   }));
 
-  const maxVal = Math.max(...dayData.map((d) => Math.max(d.total, d.completed)), 1);
+  const maxVal = Math.max(...dayData.map((d) => Math.max(d.planned, d.achieved)), 1);
   const ySteps = maxVal <= 4 ? maxVal : 4;
 
   const svgWidth = 400;
@@ -129,7 +138,7 @@ function SevenDayChart({
   const gap = 2;
 
   return (
-    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" role="img" aria-label="7-day task trends">
+    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" role="img" aria-label="7-day score trends">
       {Array.from({ length: ySteps + 1 }, (_, i) => {
         const val = Math.round((maxVal / ySteps) * i);
         const y = paddingTop + chartHeight - (chartHeight * i) / ySteps;
@@ -146,12 +155,12 @@ function SevenDayChart({
         const groupX = paddingLeft + i * groupWidth;
         const barX = groupX + (groupWidth - 2 * barWidth - gap) / 2;
         const baseY = paddingTop + chartHeight;
-        const totalH = maxVal > 0 ? (d.total / maxVal) * chartHeight : 0;
-        const completedH = maxVal > 0 ? (d.completed / maxVal) * chartHeight : 0;
+        const plannedH = maxVal > 0 ? (d.planned / maxVal) * chartHeight : 0;
+        const achievedH = maxVal > 0 ? (d.achieved / maxVal) * chartHeight : 0;
         return (
           <g key={d.key}>
-            <rect x={barX} y={baseY - totalH} width={barWidth} height={totalH} rx={2} fill="#bae6fd" />
-            <rect x={barX + barWidth + gap} y={baseY - completedH} width={barWidth} height={completedH} rx={2} fill="#0284c7" />
+            <rect x={barX} y={baseY - plannedH} width={barWidth} height={plannedH} rx={2} fill="#bae6fd" />
+            <rect x={barX + barWidth + gap} y={baseY - achievedH} width={barWidth} height={achievedH} rx={2} fill="#0284c7" />
             <text x={groupX + groupWidth / 2} y={baseY + 14} textAnchor="middle" className="fill-zinc-500 text-[8px]">
               {d.label}
             </text>
@@ -165,6 +174,7 @@ function SevenDayChart({
 export default function CloudTodoPage() {
   const router = useRouter();
   const [input, setInput] = useState("");
+  const [newTaskScore, setNewTaskScore] = useState<TaskScore>(1);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -185,7 +195,7 @@ export default function CloudTodoPage() {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from("tasks")
-      .select("id,text,completed,created_at,day")
+      .select("id,text,completed,created_at,day,score")
       .eq("user_id", uid)
       .order("created_at", { ascending: false });
 
@@ -198,6 +208,7 @@ export default function CloudTodoPage() {
       completed: row.completed,
       createdAt: row.created_at,
       day: row.day,
+      score: toTaskScore(row.score),
     }));
 
     setTodos(mapped);
@@ -283,6 +294,17 @@ export default function CloudTodoPage() {
     [todos, todayKey, archiveCutoff],
   );
   const remainingCount = useMemo(() => myDayTodos.filter((todo) => !todo.completed).length, [myDayTodos]);
+  const todayScore = useMemo(
+    () =>
+      myDayTodos.reduce(
+        (totals, todo) => ({
+          planned: totals.planned + todo.score,
+          achieved: totals.achieved + (todo.completed ? todo.score : 0),
+        }),
+        { planned: 0, achieved: 0 },
+      ),
+    [myDayTodos],
+  );
   const groupedArchive = useMemo(() => {
     return archiveTodos.reduce<Record<string, Todo[]>>((groups, todo) => {
       groups[todo.day] ??= [];
@@ -294,10 +316,10 @@ export default function CloudTodoPage() {
   const archiveDays = useMemo(() => Object.keys(groupedArchive).sort((a, b) => b.localeCompare(a)), [groupedArchive]);
 
   const dayStatsMap = useMemo(() => {
-    return todos.reduce<Record<string, { total: number; completed: number }>>((acc, todo) => {
-      acc[todo.day] ??= { total: 0, completed: 0 };
-      acc[todo.day].total += 1;
-      if (todo.completed) acc[todo.day].completed += 1;
+    return todos.reduce<Record<string, { planned: number; achieved: number }>>((acc, todo) => {
+      acc[todo.day] ??= { planned: 0, achieved: 0 };
+      acc[todo.day].planned += todo.score;
+      if (todo.completed) acc[todo.day].achieved += todo.score;
       return acc;
     }, {});
   }, [todos]);
@@ -417,6 +439,7 @@ export default function CloudTodoPage() {
         text,
         completed: false,
         day: todayKey,
+        score: newTaskScore,
       })
       .select("id")
       .single<{ id: string }>();
@@ -429,7 +452,16 @@ export default function CloudTodoPage() {
     triggerAddArmstrong();
     playAddSound();
     setInput("");
+    setNewTaskScore(1);
     inputRef.current?.focus();
+  };
+
+  const updateTodoScore = async (id: string, score: TaskScore) => {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from("tasks").update({ score }).eq("id", id);
+    if (!error && userId) {
+      await loadTasks(userId);
+    }
   };
 
   const toggleTodo = async (id: string, source?: HTMLElement | null) => {
@@ -468,14 +500,15 @@ export default function CloudTodoPage() {
     await loadTasks(userId);
   };
 
-  const addFromArchiveToMyDay = async (text: string) => {
+  const addFromArchiveToMyDay = async (todo: Todo) => {
     if (!userId) return;
     const supabase = getSupabaseClient();
     await supabase.from("tasks").insert({
       user_id: userId,
-      text,
+      text: todo.text,
       completed: false,
       day: todayKey,
+      score: todo.score,
     });
     await loadTasks(userId);
   };
@@ -570,19 +603,38 @@ export default function CloudTodoPage() {
             <label htmlFor="todo-input" className="sr-only">
               Add a task to My Day
             </label>
-            <input
-              id="todo-input"
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onFocus={triggerInputPulse}
-              onClick={triggerInputPulse}
-              placeholder="Add a task to My Day"
-              className={`w-full rounded-xl border border-sky-200 bg-white px-4 py-3 text-base outline-none ring-offset-2 focus:ring-2 focus:ring-sky-400 ${inputPulse ? "input-bloom" : ""} ${addArmstrong ? "armstrong-add-glow" : ""}`}
-            />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                id="todo-input"
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onFocus={triggerInputPulse}
+                onClick={triggerInputPulse}
+                placeholder="Add a task to My Day"
+                className={`min-w-0 flex-1 rounded-xl border border-sky-200 bg-white px-4 py-3 text-base outline-none ring-offset-2 focus:ring-2 focus:ring-sky-400 ${inputPulse ? "input-bloom" : ""} ${addArmstrong ? "armstrong-add-glow" : ""}`}
+              />
+              <label className="flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700">
+                <span>Score</span>
+                <select
+                  value={newTaskScore}
+                  onChange={(event) => setNewTaskScore(toTaskScore(Number(event.target.value)))}
+                  className="rounded-lg bg-sky-50 px-2 py-1 text-sky-800 outline-none focus:ring-2 focus:ring-sky-400"
+                  aria-label="Score for new task"
+                >
+                  {TASK_SCORES.map((score) => (
+                    <option key={score} value={score}>{score}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="mt-3 flex items-center justify-between text-sm text-zinc-600">
-              <p>{remainingCount} remaining</p>
+              <p>
+                {remainingCount} {remainingCount === 1 ? "task" : "tasks"} remaining
+                <span className="mx-1.5 text-zinc-300" aria-hidden="true">&middot;</span>
+                <span className="font-medium text-sky-800">Score achieved: {todayScore.achieved} / {todayScore.planned} planned</span>
+              </p>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -611,9 +663,9 @@ export default function CloudTodoPage() {
               myDayTodos.map((todo) => (
                 <li
                   key={todo.id}
-                  className={`flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-white p-3 shadow-sm ${newTaskPulseId === todo.id ? "task-added" : ""} ${completedPulseIds.includes(todo.id) ? "task-completed" : ""}`}
+                  className={`flex flex-col gap-3 rounded-xl border border-sky-100 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between ${newTaskPulseId === todo.id ? "task-added" : ""} ${completedPulseIds.includes(todo.id) ? "task-completed" : ""}`}
                 >
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3 sm:flex-1">
                     <input
                       id={`todo-${todo.id}`}
                       type="checkbox"
@@ -629,31 +681,45 @@ export default function CloudTodoPage() {
                       {todo.text}
                     </label>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void deleteTodo(todo.id)}
-                    className="min-h-10 rounded-lg border border-sky-200 px-3 py-1 text-sm hover:bg-sky-50"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <label className="sr-only" htmlFor={`score-${todo.id}`}>Score for {todo.text}</label>
+                    <select
+                      id={`score-${todo.id}`}
+                      value={todo.score}
+                      onChange={(event) => void updateTodoScore(todo.id, toTaskScore(Number(event.target.value)))}
+                      className="min-h-10 rounded-lg border border-sky-200 bg-sky-50 px-2 text-sm font-medium text-sky-800 outline-none focus:ring-2 focus:ring-sky-400"
+                      aria-label={`Score for ${todo.text}`}
+                    >
+                      {TASK_SCORES.map((score) => (
+                        <option key={score} value={score}>{score} pts</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void deleteTodo(todo.id)}
+                      className="min-h-10 rounded-lg border border-sky-200 px-3 py-1 text-sm hover:bg-sky-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               ))
             )}
           </ul>
 
           <section className="mt-7 rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-cyan-50 p-4">
-            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">7-Day Trends</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">7-Day Score Trends</p>
             <div className="mt-3">
               <SevenDayChart dayStatsMap={dayStatsMap} />
             </div>
             <div className="mt-2 flex items-center gap-4 text-xs text-zinc-600">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#bae6fd" }} />
-                Created
+                Score planned
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#0284c7" }} />
-                Completed
+                Score achieved
               </span>
             </div>
           </section>
@@ -741,7 +807,7 @@ export default function CloudTodoPage() {
                           </p>
                           <button
                             type="button"
-                            onClick={() => void addFromArchiveToMyDay(todo.text)}
+                            onClick={() => void addFromArchiveToMyDay(todo)}
                             className="min-h-9 rounded-md border border-sky-300 px-2 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50"
                           >
                             Add to My Day

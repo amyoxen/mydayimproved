@@ -5,6 +5,7 @@ type TasksRow = {
   completed: boolean;
   day: string;
   created_at: string;
+  score: number;
 };
 
 type ProfilesRow = {
@@ -26,6 +27,7 @@ export type Database = {
           completed?: boolean;
           day: string;
           created_at?: string;
+          score?: number;
         };
         Update: {
           id?: string;
@@ -34,6 +36,7 @@ export type Database = {
           completed?: boolean;
           day?: string;
           created_at?: string;
+          score?: number;
         };
         Relationships: [];
       };

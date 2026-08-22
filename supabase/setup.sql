@@ -13,8 +13,34 @@ create table if not exists public.tasks (
   text text not null,
   completed boolean not null default false,
   day text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  score integer not null default 1 check (score in (1, 3, 5, 10))
 );
+
+-- Also upgrades existing task tables. Every existing task begins at the default score of 1.
+alter table public.tasks
+add column if not exists score integer not null default 1;
+
+update public.tasks
+set score = 1
+where score is null;
+
+alter table public.tasks
+alter column score set default 1,
+alter column score set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'tasks_score_check'
+      and conrelid = 'public.tasks'::regclass
+  ) then
+    alter table public.tasks
+    add constraint tasks_score_check check (score in (1, 3, 5, 10));
+  end if;
+end $$;
 
 alter table public.profiles enable row level security;
 alter table public.tasks enable row level security;
