@@ -485,15 +485,6 @@ export default function CloudTodoPage() {
     inputRef.current?.focus();
   };
 
-  const updateTodoScore = async (id: string, score: TaskScore) => {
-    if (!scoresAvailable) return;
-    const supabase = getSupabaseClient();
-    const { error } = await supabase.from("tasks").update({ score }).eq("id", id);
-    if (!error && userId) {
-      await loadTasks(userId);
-    }
-  };
-
   const toggleTodo = async (id: string, source?: HTMLElement | null) => {
     const target = todos.find((todo) => todo.id === id);
     if (!target) return;
