@@ -523,13 +523,6 @@ export default function CloudTodoPage() {
     }
   };
 
-  const clearCompleted = async () => {
-    if (!userId) return;
-    const supabase = getSupabaseClient();
-    await supabase.from("tasks").delete().eq("user_id", userId).eq("day", todayKey).eq("completed", true);
-    await loadTasks(userId);
-  };
-
   const addFromArchiveToMyDay = async (todo: Todo) => {
     if (!userId) return;
     const supabase = getSupabaseClient();
@@ -671,13 +664,6 @@ export default function CloudTodoPage() {
               </p>
               <div className="flex gap-2">
                 <button
-                  type="button"
-                  onClick={clearCompleted}
-                  className="min-h-10 rounded-lg border border-sky-200 px-3 py-1.5 hover:bg-sky-50"
-                >
-                  Clear completed
-                </button>
-                <button
                   ref={addButtonRef}
                   type="submit"
                   className={`min-h-10 rounded-lg px-3 py-1.5 font-semibold text-white transition-all ${input.trim() ? "bg-sky-600 hover:bg-sky-500" : "bg-sky-300"} ${addArmstrong ? "armstrong-add-kick" : ""}`}
@@ -716,19 +702,9 @@ export default function CloudTodoPage() {
                     </label>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <label className="sr-only" htmlFor={`score-${todo.id}`}>Score for {todo.text}</label>
-                    <select
-                      id={`score-${todo.id}`}
-                      value={todo.score}
-                      onChange={(event) => void updateTodoScore(todo.id, toTaskScore(Number(event.target.value)))}
-                      disabled={!scoresAvailable}
-                      className="min-h-10 rounded-lg border border-sky-200 bg-sky-50 px-2 text-sm font-medium text-sky-800 outline-none focus:ring-2 focus:ring-sky-400"
-                      aria-label={`Score for ${todo.text}`}
-                    >
-                      {TASK_SCORES.map((score) => (
-                        <option key={score} value={score}>{score} pts</option>
-                      ))}
-                    </select>
+                    <span className="rounded-lg bg-sky-50 px-2.5 py-2 text-sm font-medium text-sky-800">
+                      {todo.score} pts
+                    </span>
                     <button
                       type="button"
                       onClick={() => void deleteTodo(todo.id)}
